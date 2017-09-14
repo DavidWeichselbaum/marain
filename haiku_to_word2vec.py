@@ -13,12 +13,14 @@ with open('haiku.txt') as file:
 			haiku = []
 			continue
 		words = [word.lower() for word in words]
+		vectors = []
 		for word in words:
 			try:
 				vector = wordVecs[word]
 			except:
 				vector = wordVecs['@']
-		haiku += vector
+			vectors.append(vector)
+		haiku += vectors
 haikus = np.array(haikus)
 print(haikus.shape)
 np.save('haiku.npy', haikus)

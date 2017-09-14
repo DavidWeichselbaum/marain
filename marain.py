@@ -46,7 +46,7 @@ def array_to_sentences(array):
 testSentences = array_to_sentences(testData)
 
 class WriteExample(keras.callbacks.Callback):
-	def __init__(self, log_dir='./Logs'):
+	def __init__(self, log_dir='./logs'):
 		self.logdir = log_dir
 		with tf.name_scope('validation_sentences') as scope:
 			self.id_list = tf.placeholder(tf.int32, shape=[nTest*2], name='sent_ids')
@@ -90,8 +90,8 @@ print(model.summary())
 
 import datetime
 dt = datetime.datetime.today().strftime('%Y-%m-%d-%H:%M:%S')
-logDir = './Logs/%s' % (dt)
-callbacks = [	
+logDir = './logs/%s' % (dt)
+callbacks = 	[	
 		keras.callbacks.TensorBoard(log_dir=logDir),
 		WriteExample(log_dir=logDir),
 		]
