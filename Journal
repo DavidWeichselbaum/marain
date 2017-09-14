@@ -1,0 +1,8 @@
+gensim wikipedia vec2word downloaded from:
+	https://github.com/3Top/word2vec-api
+txt gensim has to be annotated to work:
+	https://github.com/3Top/word2vec-api/issues/6
+haikus downloaded from:
+	https://github.com/herval/haikuzao/blob/master/inputs/haiku.txt
+punctuation done with:
+	:% s/\([\.]\+\)/ \1 /g
