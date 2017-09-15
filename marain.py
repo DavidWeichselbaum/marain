@@ -1,7 +1,4 @@
 import numpy as np
-import keras
-from keras.models import Model
-from keras.layers import Input, LSTM
 import tensorflow as tf
 import gensim
 
@@ -45,6 +42,7 @@ def array_to_sentences(array):
 
 testSentences = array_to_sentences(testData)
 
+import keras
 class WriteExample(keras.callbacks.Callback):
 	def __init__(self, log_dir='./logs'):
 		self.logdir = log_dir
@@ -81,11 +79,28 @@ class WriteExample(keras.callbacks.Callback):
 		self.summary_writer.add_summary(valid_summary, global_step=epoch)
 		self.summary_writer.flush()
 
+def cos_distance(y_true, y_pred):
+	y_true = K.l2_normalize(y_true, axis=-1)
+	y_pred = K.l2_normalize(y_pred, axis=-1)
+	return K.mean(1 - K.sum((y_true * y_pred), axis=-1))
+
+import keras.backend as K
+from keras.models import Model
+from keras.layers import Input, LSTM
+from keras.layers.convolutional import Cropping1D, UpSampling1D
+
 inp = Input(shape=(sentLen, vecLen))
-x = LSTM(100, return_sequences=True)(inp)
+x = LSTM(50, return_sequences=False)(inp)
+# x = LSTM(50, return_sequences=True)(inp)
+# x = LSTM(50, return_sequences=True)(x)
+# x = LSTM(500, return_sequences=False)(x)
+x = keras.layers.core.RepeatVector(sentLen)(x)
+# x = LSTM(50, return_sequences=True)(x)
+# x = LSTM(50, return_sequences=True)(x)
 out = LSTM(vecLen, return_sequences=True)(x)
+
 model = Model(inputs=inp, outputs=out)
-model.compile(loss='mae', optimizer='adagrad')
+model.compile(loss=cos_distance, optimizer='adagrad')
 print(model.summary())
 
 import datetime
@@ -96,4 +111,4 @@ callbacks = 	[
 		WriteExample(log_dir=logDir),
 		]
 		
-model.fit(x=data, y=data, epochs=50, validation_split=0.2, callbacks=callbacks)
+model.fit(x=data, y=data, epochs=9999, validation_split=0.2, callbacks=callbacks)
