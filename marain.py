@@ -1,32 +1,13 @@
 import numpy as np
 import tensorflow as tf
+import keras
+from keras import objectives, backend as K
+from keras.layers import Bidirectional, Dense, Embedding, Input, Lambda, LSTM, RepeatVector, TimeDistributed
+from keras.models import Model
 import gensim
 
+
 nTest = 3
-
-rawData = np.load('haiku.npy')
-datLen = len(rawData)
-print('Data lenght: %d' % (datLen))
-vecLen = rawData[0][0].shape[0]
-print('Vector lenght: %d' % (vecLen))
-sentLen = 0
-for sent in rawData:
-	if len(sent) > sentLen: sentLen = len(sent)
-print('Sentence lenght: %d' % (sentLen))
-
-model = gensim.models.KeyedVectors.load_word2vec_format('./model/glove.6B.50d.txt', binary=False)  
-wordVecs = model.wv
-spacer = wordVecs['$']
-data = np.tile(spacer, (datLen, sentLen, 1))
-print('Data shape: %s' % (str(data.shape)))
-for i, sent in enumerate(rawData):
-	sent = np.array(sent)
-	if len(sent) == 0: continue
-	data[i, :len(sent), :] = sent
-
-#data = data[:30]
-testData = data[:nTest]
-data = data[nTest:]
 
 def array_to_sentences(array):
 	sentences = []
@@ -40,9 +21,6 @@ def array_to_sentences(array):
 		sentences.append(sentence)
 	return sentences
 
-testSentences = array_to_sentences(testData)
-
-import keras
 class WriteExample(keras.callbacks.Callback):
 	def __init__(self, log_dir='./logs'):
 		self.logdir = log_dir
@@ -84,19 +62,114 @@ def cos_distance(y_true, y_pred):
 	y_pred = K.l2_normalize(y_pred, axis=-1)
 	return K.mean(1 - K.sum((y_true * y_pred), axis=-1))
 
+class VAE(object):
+	def create(self, vocab_size=50, max_length=30, latent_rep_size=200):
+		x = Input(shape=(max_length, vocab_size))
+		vae_loss, encoded = self._build_encoder(x, latent_rep_size=latent_rep_size, max_length=max_length)
+
+		self.encoder = Model(inputs=x, outputs=encoded)
+		encoded_input = Input(shape=(latent_rep_size,))
+		decoded = self._build_decoder(encoded_input, vocab_size, max_length)
+		self.decoder = Model(encoded_input, decoded)
+
+		self.autoencoder = Model(inputs=x, outputs=self._build_decoder(encoded, vocab_size, max_length))
+		print(self.autoencoder.summary())
+# 		self.autoencoder.compile(optimizer='Adam', loss=vae_loss, metrics=['accuracy'])
+		self.autoencoder.compile(optimizer='Adam', loss=vae_loss, metrics=['accuracy'])
+
+	def _build_encoder(self, x, latent_rep_size=200, max_length=30, epsilon_std=0.001):
+		h = Bidirectional(LSTM(50, return_sequences=True, name='lstm_1'), merge_mode='concat')(x)
+		h = Bidirectional(LSTM(50, return_sequences=False, name='lstm_2'), merge_mode='concat')(h)
+		h = Dense(50, activation='relu', name='dense_1')(h)
+		def sampling(args):
+			z_mean_, z_log_var_ = args
+			batch_size = K.shape(z_mean_)[0]
+			epsilon = K.random_normal(shape=(batch_size, latent_rep_size), mean=0., stddev=epsilon_std)
+			return z_mean_ + K.exp(z_log_var_ / 2) * epsilon
+		z_mean = Dense(latent_rep_size, name='z_mean', activation='linear')(h)
+		z_log_var = Dense(latent_rep_size, name='z_log_var', activation='linear')(h)
+		def vae_loss(x, x_decoded_mean):
+			x = K.flatten(x)
+			x_decoded_mean = K.flatten(x_decoded_mean)
+# 			xent_loss = max_length * objectives.binary_crossentropy(x, x_decoded_mean)
+# 			xent_loss = max_length * objectives.categorical_crossentropy(x, x_decoded_mean)
+			xent_loss = objectives.kullback_leibler_divergence(x, x_decoded_mean)
+# 			xent_loss = cos_distance(x, x_decoded_mean)
+			kl_loss = - 0.5 * K.mean(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
+			return xent_loss + kl_loss
+		return (vae_loss, Lambda(sampling, output_shape=(latent_rep_size,), name='lambda')([z_mean, z_log_var]))
+	
+	def _build_decoder(self, encoded, vocab_size, max_length):
+		repeated_context = RepeatVector(max_length)(encoded)
+		h = LSTM(50, return_sequences=True, name='dec_lstm_1')(repeated_context)
+		h = LSTM(50, return_sequences=True, name='dec_lstm_2')(h)
+		return TimeDistributed(Dense(vocab_size, activation='softmax'), name='decoded_mean')(h)
+
+def create_callbacks(dir, log, model_name):
+	import os
+	import datetime
+	dt = datetime.datetime.today().strftime('%Y-%m-%d-%H:%M:%S')
+
+	checkpointPath = './%s/%s-%s-{epoch:05d}-{val_acc:.2f}.h5' % (dir, model_name, dt)
+# 	checkpointPath = dir + '/' + model_name + ".h5"
+	checkpointDir = os.path.dirname(checkpointPath)
+	try:
+		os.stat(checkpointDir)
+	except:
+		os.mkdir(checkpointDir)
+
+	logPath = './%s/%s_%s' % (log, model_name, dt)
+	logDir = os.path.dirname(logPath)
+	try:
+		os.stat(logDir)
+	except:
+		os.mkdir(logDir)
+
+	return	 	[	
+			keras.callbacks.ModelCheckpoint(filepath=checkpointPath, monitor='val_acc', verbose=1, save_best_only=True),
+			keras.callbacks.TensorBoard(log_dir=logPath),
+			WriteExample(log_dir=logPath),
+			]
+
+
+data = np.load('./data/haiku.npy')
+# data = np.load('./data/sentences.npy')
+print('Data shape: %s' % (str(data.shape)))
+datLen  = data.shape[0]
+sentLen = data.shape[1]
+vecLen  = data.shape[2]
+
+#data = data[:30]
+testData = data[:nTest]
+data = data[nTest:]
+
+model = gensim.models.KeyedVectors.load_word2vec_format('./model/glove.6B.50d.txt', binary=False)  
+wordVecs = model.wv
+testSentences = array_to_sentences(testData)
+
+model = VAE()
+model.create(vocab_size=vecLen, max_length=sentLen)
+callbacks = create_callbacks('saves', 'logs', 'haiku_ae')
+model.autoencoder.fit(x=data, y=data, validation_split=0.2,
+		batch_size=10, epochs=999, callbacks=callbacks)
+
+
+
+
+
+exit(0)
+
 import keras.backend as K
 from keras.models import Model
 from keras.layers import Input, LSTM
 from keras.layers.convolutional import Cropping1D, UpSampling1D
 
 inp = Input(shape=(sentLen, vecLen))
-x = LSTM(50, return_sequences=False)(inp)
-# x = LSTM(50, return_sequences=True)(inp)
-# x = LSTM(50, return_sequences=True)(x)
-# x = LSTM(500, return_sequences=False)(x)
+x = LSTM(50, return_sequences=True)(inp)
+x = LSTM(50, return_sequences=False)(x)
 x = keras.layers.core.RepeatVector(sentLen)(x)
-# x = LSTM(50, return_sequences=True)(x)
-# x = LSTM(50, return_sequences=True)(x)
+x = LSTM(50, return_sequences=True)(x)
+x = LSTM(50, return_sequences=True)(x)
 out = LSTM(vecLen, return_sequences=True)(x)
 
 model = Model(inputs=inp, outputs=out)
