@@ -143,7 +143,7 @@ vecLen  = data.shape[2]
 testData = data[:nTest]
 data = data[nTest:]
 
-model = gensim.models.KeyedVectors.load_word2vec_format('./model/glove.6B.50d.txt', binary=False)  
+model = gensim.models.KeyedVectors.load_word2vec_format('./word2vec/glove.6B.50d.txt', binary=False)  
 wordVecs = model.wv
 testSentences = array_to_sentences(testData)
 

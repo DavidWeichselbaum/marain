@@ -1,7 +1,8 @@
+import sys
 import gensim
 import numpy as np
 
-model = gensim.models.KeyedVectors.load_word2vec_format('./model/glove.6B.50d.txt', binary=False)  
+model = gensim.models.KeyedVectors.load_word2vec_format(sys.argv[1], binary=False)  
 wordVecs = model.wv
 
 maxLen = 30
@@ -9,7 +10,7 @@ unknown = wordVecs['@']
 spacer = wordVecs['$']
 
 sentences = []
-with open('./data/sentences.txt') as file:
+with open(sys.argv[2]) as file:
 	for i, line in enumerate(file):
 		words = line.split()
 		if len(words) > 30: continue
@@ -23,6 +24,7 @@ with open('./data/sentences.txt') as file:
 			vectors.append(vector)
 		sentences.append(vectors)
 		print('Converting sentence: %d' % (i), end='\r')
+print()
 sentences = np.array(sentences)
 
 datLen = len(sentences)
@@ -42,4 +44,4 @@ for i, sent in enumerate(sentences):
 	data[i, :len(sent), :] = sent
 
 print('Saving data.')
-np.save('./data/sentences.npy', data)
+np.save(sys.argv[3], data)

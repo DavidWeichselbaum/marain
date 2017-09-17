@@ -1,7 +1,8 @@
+import sys
 import gensim
 import numpy as np
 
-model = gensim.models.KeyedVectors.load_word2vec_format('./model/glove.6B.50d.txt', binary=False)  
+model = gensim.models.KeyedVectors.load_word2vec_format(sys.argv[1], binary=False)  
 wordVecs = model.wv
 
 maxLen = 15
@@ -10,12 +11,16 @@ spacer = wordVecs['$']
 lineBreak = wordVecs['/']
 
 haikus, haiku = [], []
-with open('./data/haiku.txt') as file:
-	for i, line in enumerate(file):
+n = 0
+with open(sys.argv[2]) as file:
+	for line in file:
 		words = line.split()
 		if len(words) == 0:
 			if len(haiku) > 0: del haiku[-1] # remove lineBreak from last line
-			if len(haiku) <= maxLen: haikus.append(haiku)
+			if len(haiku) <= maxLen: 
+				haikus.append(haiku)
+				n += 1
+				print('Converting haiku: %d' % (n), end='\r')
 			haiku = []
 			continue
 
@@ -29,7 +34,7 @@ with open('./data/haiku.txt') as file:
 			vectors.append(vector)
 		haiku += vectors
 		haiku += [lineBreak]
-		print('Converting haiku: %d' % (i), end='\r')
+print()
 haikus = np.array(haikus)
 
 datLen = len(haikus)
@@ -49,4 +54,4 @@ for i, sent in enumerate(haikus):
 	data[i, :len(sent), :] = sent
 
 print('Saving data.')
-np.save('./data/haiku.npy', data)
+np.save(sys.argv[3], data)
