@@ -5,7 +5,8 @@ import numpy as np
 model = gensim.models.KeyedVectors.load_word2vec_format(sys.argv[1], binary=False)  
 wordVecs = model.wv
 
-maxLen = 30
+# maxLen = 30
+maxLen = 10
 unknown = wordVecs['@']
 spacer = wordVecs['$']
 
@@ -13,7 +14,7 @@ sentences = []
 with open(sys.argv[2]) as file:
 	for i, line in enumerate(file):
 		words = line.split()
-		if len(words) > 30: continue
+		if len(words) > maxLen: continue
 		words = [word.lower() for word in words]
 		vectors = []
 		for word in words:

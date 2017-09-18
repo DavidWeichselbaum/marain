@@ -21,6 +21,21 @@ def array_to_sentences(array):
 		sentences.append(sentence)
 	return sentences
 
+
+class PrintExample(keras.callbacks.Callback):
+	def on_epoch_end(self, epoch, logs={}):
+		if epoch % 1 != 0: return
+	
+		decoded = self.model.predict(testData)
+		decSentences = array_to_sentences(decoded)
+
+		textList = []
+		for original, decoded in zip(testSentences, decSentences):
+			textList += ['O: ' + original]
+			textList += ['D: ' + decoded]	
+		print()
+		print('\n'.join(textList))
+
 class WriteExample(keras.callbacks.Callback):
 	def __init__(self, log_dir='./logs'):
 		self.logdir = log_dir
@@ -74,13 +89,14 @@ class VAE(object):
 
 		self.autoencoder = Model(inputs=x, outputs=self._build_decoder(encoded, vocab_size, max_length))
 		print(self.autoencoder.summary())
-# 		self.autoencoder.compile(optimizer='Adam', loss=vae_loss, metrics=['accuracy'])
 		self.autoencoder.compile(optimizer='Adam', loss=vae_loss, metrics=['accuracy'])
 
 	def _build_encoder(self, x, latent_rep_size=200, max_length=30, epsilon_std=0.001):
-		h = Bidirectional(LSTM(50, return_sequences=True, name='lstm_1'), merge_mode='concat')(x)
-		h = Bidirectional(LSTM(50, return_sequences=False, name='lstm_2'), merge_mode='concat')(h)
-		h = Dense(50, activation='relu', name='dense_1')(h)
+# 		h = Bidirectional(LSTM(50, return_sequences=True, name='lstm_1'), merge_mode='concat')(x)
+# 		h = Bidirectional(LSTM(50, return_sequences=False, name='lstm_2'), merge_mode='concat')(h)
+		h = LSTM(500, return_sequences=True, name='lstm_1')(x)
+		h = LSTM(500, return_sequences=False, name='lstm_2')(h)
+		h = Dense(500, activation='relu', name='dense_1')(h)
 		def sampling(args):
 			z_mean_, z_log_var_ = args
 			batch_size = K.shape(z_mean_)[0]
@@ -101,8 +117,8 @@ class VAE(object):
 	
 	def _build_decoder(self, encoded, vocab_size, max_length):
 		repeated_context = RepeatVector(max_length)(encoded)
-		h = LSTM(50, return_sequences=True, name='dec_lstm_1')(repeated_context)
-		h = LSTM(50, return_sequences=True, name='dec_lstm_2')(h)
+		h = LSTM(500, return_sequences=True, name='dec_lstm_1')(repeated_context)
+		h = LSTM(500, return_sequences=True, name='dec_lstm_2')(h)
 		return TimeDistributed(Dense(vocab_size, activation='softmax'), name='decoded_mean')(h)
 
 def create_callbacks(dir, log, model_name):
@@ -110,8 +126,7 @@ def create_callbacks(dir, log, model_name):
 	import datetime
 	dt = datetime.datetime.today().strftime('%Y-%m-%d-%H:%M:%S')
 
-	checkpointPath = './%s/%s-%s-{epoch:05d}-{val_acc:.2f}.h5' % (dir, model_name, dt)
-# 	checkpointPath = dir + '/' + model_name + ".h5"
+	checkpointPath = './%s/%s-%s-{epoch:05d}-{val_loss:.2f}.h5' % (dir, model_name, dt)
 	checkpointDir = os.path.dirname(checkpointPath)
 	try:
 		os.stat(checkpointDir)
@@ -126,14 +141,21 @@ def create_callbacks(dir, log, model_name):
 		os.mkdir(logDir)
 
 	return	 	[	
-			keras.callbacks.ModelCheckpoint(filepath=checkpointPath, monitor='val_acc', verbose=1, save_best_only=True),
+			keras.callbacks.ModelCheckpoint(filepath=checkpointPath, monitor='val_loss', verbose=1, save_best_only=True),
 			keras.callbacks.TensorBoard(log_dir=logPath),
-			WriteExample(log_dir=logPath),
+# 			WriteExample(log_dir=logPath),
+			PrintExample(),
 			]
 
+import tensorflow as tf
+from keras.backend.tensorflow_backend import set_session
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.3
+config.gpu_options.visible_device_list = "0"
+set_session(tf.Session(config=config))
 
-data = np.load('./data/haiku.npy')
-# data = np.load('./data/sentences.npy')
+# data = np.load('./data/haiku.npy')
+data = np.load('./data/sentences.npy')
 print('Data shape: %s' % (str(data.shape)))
 datLen  = data.shape[0]
 sentLen = data.shape[1]
@@ -147,17 +169,13 @@ model = gensim.models.KeyedVectors.load_word2vec_format('./word2vec/glove.6B.50d
 wordVecs = model.wv
 testSentences = array_to_sentences(testData)
 
-model = VAE()
-model.create(vocab_size=vecLen, max_length=sentLen)
-callbacks = create_callbacks('saves', 'logs', 'haiku_ae')
-model.autoencoder.fit(x=data, y=data, validation_split=0.2,
-		batch_size=10, epochs=999, callbacks=callbacks)
-
-
-
-
-
-exit(0)
+# model = VAE()
+# model.create(vocab_size=vecLen, max_length=sentLen)
+# callbacks = create_callbacks('saves', 'logs', 'haiku_ae')
+# model.autoencoder.fit(x=data, y=data, validation_split=0.2,
+# 		batch_size=10, epochs=999, callbacks=callbacks)
+# 
+# exit(0)
 
 import keras.backend as K
 from keras.models import Model
@@ -166,22 +184,18 @@ from keras.layers.convolutional import Cropping1D, UpSampling1D
 
 inp = Input(shape=(sentLen, vecLen))
 x = LSTM(50, return_sequences=True)(inp)
-x = LSTM(50, return_sequences=False)(x)
-x = keras.layers.core.RepeatVector(sentLen)(x)
 x = LSTM(50, return_sequences=True)(x)
+x = LSTM(100, return_sequences=True)(x)
+x = LSTM(225, return_sequences=False)(x)
+x = keras.layers.core.RepeatVector(sentLen)(x)
+x = LSTM(225, return_sequences=True)(x)
+x = LSTM(100, return_sequences=True)(x)
 x = LSTM(50, return_sequences=True)(x)
 out = LSTM(vecLen, return_sequences=True)(x)
 
 model = Model(inputs=inp, outputs=out)
-model.compile(loss=cos_distance, optimizer='adagrad')
+model.compile(loss=cos_distance, optimizer='adam', metrics=['accuracy'])
 print(model.summary())
-
-import datetime
-dt = datetime.datetime.today().strftime('%Y-%m-%d-%H:%M:%S')
-logDir = './logs/%s' % (dt)
-callbacks = 	[	
-		keras.callbacks.TensorBoard(log_dir=logDir),
-		WriteExample(log_dir=logDir),
-		]
 		
+callbacks = create_callbacks('saves', 'logs', 'haiku_ae')
 model.fit(x=data, y=data, epochs=9999, validation_split=0.2, callbacks=callbacks)
